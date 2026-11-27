@@ -10,9 +10,14 @@
       <h1 class="font-serif display-5 fw-bold text-forest-900 mb-0">My Medicines & Cabinet</h1>
       <p class="text-secondary fs-5">All active prescriptions, schedules, and compliance history.</p>
     </div>
-    <a href="{{ url_for('senior_dashboard') }}" class="btn btn-outline-dark rounded-pill px-4 py-2 fw-bold">
-      <i class="bi bi-arrow-left me-1"></i> Back to Home
-    </a>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('export_medications_csv') }}" class="btn btn-outline-success rounded-pill px-3 py-2 fw-bold">
+        <i class="bi bi-file-earmark-spreadsheet-fill me-1"></i> Export Log (CSV)
+      </a>
+      <a href="{{ url_for('senior_dashboard') }}" class="btn btn-outline-dark rounded-pill px-4 py-2 fw-bold">
+        <i class="bi bi-arrow-left me-1"></i> Back to Home
+      </a>
+    </div>
   </div>
 
   <!-- Active Medicines Grid -->

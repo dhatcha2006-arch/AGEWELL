@@ -179,7 +179,8 @@ def init_db():
         checkin_time TEXT,
         status TEXT NOT NULL CHECK(status IN ('ok', 'missed', 'late', 'pending')),
         note TEXT,
-        FOREIGN KEY (senior_id) REFERENCES users(id) ON DELETE CASCADE
+        FOREIGN KEY (senior_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(senior_id, checkin_date)
     )
     ''')
 
@@ -231,6 +232,28 @@ def init_db():
         FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
     )
     ''')
+
+    # 15. messages (Dedicated chat between Senior, Family, and Doctor)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id INTEGER NOT NULL,
+        receiver_id INTEGER NOT NULL,
+        message TEXT NOT NULL,
+        is_read INTEGER DEFAULT 0,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    ''')
+
+    # Performance Indexes for Fast Lookups & High-Concurrency Emergency Tracking
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_alerts_senior_status ON emergency_alerts (senior_id, status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_meds_senior_active ON medicines (senior_id, is_active)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_medlogs_senior_date ON medicine_logs (senior_id, scheduled_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_checkins_senior_date ON daily_checkins (senior_id, checkin_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_messages_participants ON messages (sender_id, receiver_id, sent_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications (user_id, is_read)')
 
     conn.commit()
     conn.close()

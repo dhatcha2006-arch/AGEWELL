@@ -23,28 +23,33 @@
       {% set act_sos = item['active_sos'] %}
       
       <div class="col-lg-6">
-        <div class="card-3d p-4 p-md-5 h-100 bg-white {{ 'border-danger border-2' if act_sos else '' }}">
+        <div class="card-3d h-100 bg-white overflow-hidden d-flex flex-column justify-content-between {{ 'border-danger border-2' if act_sos else '' }}">
           
-          <!-- Header with Active SOS Alert Indicator -->
-          <div class="d-flex justify-content-between align-items-start mb-3">
-            <div>
-              <span class="badge bg-light text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold small">
-                {{ s['relation'] }}
+          <!-- Loving Care Senior Banner Image -->
+          <div class="position-relative" style="height: 140px; overflow: hidden;">
+            <img src="{{ url_for('static', filename='images/senior_care_hero.jpg' if loop.index % 2 == 1 else 'images/elderly_lifestyle.jpg') }}" alt="Loving Care" class="w-100 h-100 object-fit-cover" style="filter: brightness(0.9);">
+            <div class="position-absolute top-0 start-0 w-100 h-100 d-flex justify-content-between align-items-start p-3" style="background: linear-gradient(180deg, rgba(13, 44, 34, 0.6) 0%, rgba(13, 44, 34, 0.2) 100%);">
+              <span class="badge bg-white text-dark rounded-pill px-3 py-1 fw-bold shadow-sm">
+                <i class="bi bi-heart-fill text-danger me-1"></i> {{ s['relation'] }}
               </span>
-              <h2 class="font-serif fw-bold fs-2 text-forest-900 mt-1 mb-0">{{ s['name'] }}</h2>
+              {% if act_sos %}
+                <span class="badge bg-danger text-white rounded-pill px-3 py-2 animate-pulse fw-bold shadow">
+                  <i class="bi bi-exclamation-triangle-fill"></i> SOS ACTIVE
+                </span>
+              {% else %}
+                <span class="badge bg-success text-white rounded-pill px-3 py-2 fw-bold shadow-sm">
+                  <i class="bi bi-shield-check"></i> Safe & Sound
+                </span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="p-4 p-md-4 flex-grow-1 d-flex flex-column justify-content-between">
+            <!-- Senior Info Header -->
+            <div class="mb-3">
+              <h2 class="font-serif fw-bold fs-2 text-forest-900 mb-1">{{ s['name'] }}</h2>
               <div class="text-secondary small"><i class="bi bi-geo-alt-fill text-danger me-1"></i> {{ s['address'] or 'San Antonio, TX' }}</div>
             </div>
-
-            {% if act_sos %}
-              <span class="badge bg-danger text-white rounded-pill px-3 py-2 animate-pulse fw-bold">
-                <i class="bi bi-exclamation-triangle-fill"></i> SOS ACTIVE
-              </span>
-            {% else %}
-              <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-2 fw-bold">
-                <i class="bi bi-shield-check"></i> Safe
-              </span>
-            {% endif %}
-          </div>
 
           <!-- Active Emergency Banner if SOS triggered -->
           {% if act_sos %}
@@ -100,13 +105,18 @@
           </div>
 
           <!-- Action buttons -->
-          <div class="mt-4 pt-3 border-top d-flex gap-2 justify-content-between align-items-center">
+          <div class="mt-4 pt-3 border-top d-flex flex-wrap gap-2 justify-content-between align-items-center">
             <a href="{{ url_for('family_senior_status', senior_id=s['id']) }}" class="btn-3d btn-3d-forest py-2 px-4 fs-6">
               Detailed Health Status <i class="bi bi-arrow-right"></i>
             </a>
-            <a href="tel:{{ s['phone'] }}" class="btn btn-outline-success rounded-pill px-3 py-2 fw-bold">
-              <i class="bi bi-telephone-fill me-1"></i> Call Senior
-            </a>
+            <div class="d-flex gap-2">
+              <a href="{{ url_for('chat_view', contact_id=s['id']) }}" class="btn btn-outline-primary rounded-pill px-3 py-2 fw-bold">
+                <i class="bi bi-chat-dots-fill me-1"></i> Message Senior
+              </a>
+              <a href="tel:{{ s['phone'] }}" class="btn btn-outline-success rounded-pill px-3 py-2 fw-bold">
+                <i class="bi bi-telephone-fill me-1"></i> Call Senior
+              </a>
+            </div>
           </div>
 
         </div>
@@ -116,17 +126,20 @@
 
   <!-- Recent Notifications & Alert Stream -->
   <div class="card-3d p-4 p-md-5 bg-white">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h3 class="font-serif fw-bold fs-3 text-forest-900 mb-0">Recent Alert Feed</h3>
-      <a href="{{ url_for('family_alerts') }}" class="btn btn-sm btn-outline-dark rounded-pill fw-bold">View All</a>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <span class="badge bg-danger bg-opacity-10 text-danger rounded-pill px-3 py-1 fw-bold small mb-1">Live Updates</span>
+        <h3 class="font-serif fw-bold fs-3 text-forest-900 mb-0">Recent Alert Feed</h3>
+      </div>
+      <a href="{{ url_for('family_alerts') }}" class="btn btn-sm btn-outline-dark rounded-pill px-3 py-1 fw-bold">View Full Center</a>
     </div>
 
     {% if alerts %}
       <div class="d-flex flex-column gap-3">
         {% for a in alerts %}
-          <div class="p-3 rounded-4 border bg-white d-flex align-items-start gap-3">
-            <div class="p-2 rounded-circle {{ 'bg-danger text-white' if a['type'] == 'sos' else 'bg-success bg-opacity-10 text-success' }}">
-              <i class="bi {{ 'bi-exclamation-triangle-fill' if a['type'] == 'sos' else 'bi-bell-fill' }} fs-5"></i>
+          <div class="p-3 border bg-white d-flex align-items-start gap-3 shadow-sm alert-feed-item">
+            <div class="alert-icon-circle flex-shrink-0 {{ 'bg-danger text-white' if a['type'] == 'sos' else ('bg-warning text-dark' if a['type'] == 'missed_medicine' else 'bg-success bg-opacity-10 text-success') }}">
+              <i class="bi {{ 'bi-exclamation-triangle-fill' if a['type'] == 'sos' else ('bi-capsule' if a['type'] == 'missed_medicine' else 'bi-bell-fill') }} fs-5"></i>
             </div>
             <div class="flex-grow-1">
               <div class="d-flex justify-content-between align-items-center mb-1">

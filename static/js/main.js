@@ -1,38 +1,13 @@
 // AGEWELL Senior Independence Portal - Main Client Script
 
 document.addEventListener('DOMContentLoaded', () => {
-  init3DTilt();
   initVoiceAssistant();
   initAccessibilityControls();
   initNotificationPolling();
+  initTheme();
 });
 
-// 1. 3D Tilt Effect on cards
-function init3DTilt() {
-  const cards = document.querySelectorAll('.card-3d, .medicine-card-3d, .service-num-card');
-  
-  cards.forEach(card => {
-    card.addEventListener('mousemove', (e) => {
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      
-      const rotateX = ((y - centerY) / centerY) * -7;
-      const rotateY = ((x - centerX) / centerX) * 7;
-      
-      card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
-    });
-    
-    card.addEventListener('mouseleave', () => {
-      card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
-    });
-  });
-}
-
-// 2. Web Audio Synthesizer for alerts
+// 1. Web Audio Synthesizer for alerts
 function playTone(type) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -142,20 +117,35 @@ function initNotificationPolling() {
 }
 
 // 6. SOS Countdown & Escalation Simulator
-function initSOSCountdown(secondsRemaining, escalationStep, totalSteps) {
+function initSOSCountdown(secondsRemaining, escalationStep, totalSteps, isResponding = false) {
   const timerDisplay = document.getElementById('sos-countdown');
   const stepBadge = document.getElementById('escalation-step-badge');
   if (!timerDisplay) return;
 
+  if (isResponding) {
+    timerDisplay.innerText = "PAUSED";
+    timerDisplay.classList.remove('text-warning', 'text-danger');
+    timerDisplay.classList.add('text-success');
+    return;
+  }
+
   let left = secondsRemaining;
+  if (left <= 0) {
+    if (escalationStep >= totalSteps + 1) {
+      timerDisplay.innerText = "Dispatch Active";
+    } else {
+      timerDisplay.innerText = "Escalated";
+    }
+    return;
+  }
+
   const interval = setInterval(() => {
     if (left <= 0) {
       clearInterval(interval);
-      timerDisplay.innerText = "Escalating to next priority contact...";
-      playTone('sos');
+      timerDisplay.innerText = "Advancing to next contact...";
       setTimeout(() => {
         window.location.reload();
-      }, 1500);
+      }, 3000);
       return;
     }
     const mins = Math.floor(left / 60);
@@ -192,39 +182,42 @@ function fillDemoLogin(role, autoSubmit = false) {
   }
 }
 
-// 8. Dynamic Theme Switcher System
+// 7. Dynamic Theme Switcher System
 function initTheme() {
   const savedTheme = localStorage.getItem('agewell_theme') || 'forest';
   setAppTheme(savedTheme, false);
 }
 
 window.setAppTheme = function(themeName, save = true) {
-  if (themeName === 'oceanic') {
-    document.documentElement.removeAttribute('data-theme');
+  if (!themeName || themeName === 'forest') {
+    document.documentElement.setAttribute('data-theme', 'forest');
   } else {
     document.documentElement.setAttribute('data-theme', themeName);
   }
   if (save) {
     localStorage.setItem('agewell_theme', themeName);
-    playTone('success');
+    if (typeof playTone === 'function') {
+      playTone('success');
+    }
   }
 };
 
-// 9. Global Interactive 3D Container Spotlight & Touch Physics
-function initInteractive3DCards() {
-  const cards = document.querySelectorAll('.card-3d, .service-num-card');
-  cards.forEach((card) => {
-    card.addEventListener('pointermove', (e) => {
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      card.style.setProperty('--mouse-x', `${x}px`);
-      card.style.setProperty('--mouse-y', `${y}px`);
+// Register PWA Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/static/sw.js').catch((err) => {
+      console.debug('ServiceWorker registration skipped:', err);
     });
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  initTheme();
-  initInteractive3DCards();
-});
+// Periodic session heartbeat (every 5 minutes) to keep bedside tablet sessions alive
+setInterval(async () => {
+  try {
+    await fetch('/api/session/heartbeat');
+  } catch (err) {
+    // Ignore network interruptions
+  }
+}, 300000);
+
+

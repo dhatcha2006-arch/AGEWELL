@@ -65,18 +65,34 @@
         </div>
       </div>
 
-      <!-- 3D Interactive Three.js Hero Canvas -->
+      <!-- Care Visual Hero Card with Warm Family Love & Care Image -->
       <div class="col-lg-6">
-        <div class="position-relative">
-          <div id="hero-3d-canvas" class="canvas-3d-hero"></div>
-          <div class="position-absolute bottom-0 start-0 m-3 p-3 rounded-4 shadow-lg" style="background: rgba(13, 44, 34, 0.85); backdrop-filter: blur(10px); border: 1px solid rgba(139, 224, 52, 0.3);">
-            <div class="d-flex align-items-center gap-3">
-              <div class="bg-success text-white rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                <i class="bi bi-activity fs-5"></i>
+        <div class="rounded-4 h-100 position-relative overflow-hidden shadow-lg border border-success border-opacity-25" style="min-height: 440px;">
+          <img src="{{ url_for('static', filename='images/family_love.jpg') }}" alt="Loving Care for Seniors" class="w-100 h-100 object-fit-cover" style="filter: brightness(0.9) contrast(1.05);">
+          
+          <div class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column justify-content-between p-4 p-md-5" style="background: linear-gradient(180deg, rgba(8, 29, 22, 0.4) 0%, rgba(8, 29, 22, 0.88) 100%);">
+            <div>
+              <span class="badge rounded-pill bg-success text-white border border-light border-opacity-25 px-3 py-2 fw-bold mb-3">
+                <i class="bi bi-heart-fill text-danger me-1"></i> Compassionate In-Home Support
+              </span>
+              <h2 class="font-serif fw-bold text-white display-6 mb-2">Surrounded by Love & Dignity</h2>
+              <p class="text-white-50 fs-6 mb-0" style="max-width: 440px;">
+                Personalized daily care, medical adherence oversight, and round-the-clock safety connection for your family.
+              </p>
+            </div>
+
+            <div class="row g-3 text-start mt-3">
+              <div class="col-sm-6">
+                <div class="p-3 rounded-4" style="background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.2);">
+                  <div class="text-lime fw-bold small mb-1"><i class="bi bi-heart-pulse-fill me-1"></i> Daily Well-Being</div>
+                  <div class="text-white small">Instant "I am OK" morning check-in notification for family.</div>
+                </div>
               </div>
-              <div>
-                <div class="text-white fw-bold small">Interactive 3D Health Guardian</div>
-                <div class="text-white-50 small">Move mouse over the 3D capsule to interact</div>
+              <div class="col-sm-6">
+                <div class="p-3 rounded-4" style="background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.2);">
+                  <div class="text-lime fw-bold small mb-1"><i class="bi bi-shield-check me-1"></i> Certified Doctors</div>
+                  <div class="text-white small">Direct communication & medication tracking with specialists.</div>
+                </div>
               </div>
             </div>
           </div>

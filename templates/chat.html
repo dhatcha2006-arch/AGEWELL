@@ -1,0 +1,267 @@
+{% extends 'base.html' %}
+
+{% block title %}Messages & Care Chat{% endblock %}
+
+{% block content %}
+<div class="container pb-5">
+  <!-- Page Header -->
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-4 gap-3">
+    <div>
+      <h1 class="font-serif fw-bold display-6 text-theme-primary mb-1">
+        <i class="bi bi-chat-dots-fill text-accent me-2"></i> Care Chat & Family Messages
+      </h1>
+      <p class="text-theme-muted fs-6 mb-0">
+        Direct, private communication between seniors, authorized family members, and assigned doctors.
+      </p>
+    </div>
+    <div>
+      <span class="badge rounded-pill bg-theme-subtle text-theme-primary border border-theme px-3 py-2 fw-semibold">
+        <i class="bi bi-shield-check text-success me-1"></i> End-to-End Care Privacy
+      </span>
+    </div>
+  </div>
+
+  <!-- WhatsApp-style Chat Layout -->
+  <div class="chat-container-card">
+    <div class="row g-0 h-100">
+      
+      <!-- Left Column: Conversations List -->
+      <div class="col-md-5 col-lg-4 chat-sidebar border-end border-theme">
+        <div class="chat-sidebar-header p-3 border-bottom border-theme d-flex align-items-center justify-content-between">
+          <div class="fw-bold fs-6 text-theme-primary">
+            <i class="bi bi-people-fill text-accent me-1"></i> Conversations ({{ contacts|length }})
+          </div>
+          <span class="small text-theme-muted">Online</span>
+        </div>
+
+        <div class="chat-contact-list">
+          {% if contacts %}
+            {% for c in contacts %}
+              <a href="{{ url_for('chat_view', contact_id=c['id']) }}" class="chat-contact-item d-flex align-items-center gap-3 p-3 text-decoration-none {% if active_contact and active_contact['id'] == c['id'] %}active{% endif %}">
+                <div class="chat-avatar-wrapper position-relative flex-shrink-0">
+                  <div class="chat-avatar-circle">
+                    {% if c['role'] == 'doctor' %}
+                      <i class="bi bi-heart-pulse-fill text-primary"></i>
+                    {% elif c['role'] == 'family' %}
+                      <i class="bi bi-people-fill text-success"></i>
+                    {% else %}
+                      <i class="bi bi-person-heart text-accent"></i>
+                    {% endif %}
+                  </div>
+                  <span class="chat-online-dot"></span>
+                </div>
+
+                <div class="flex-grow-1 overflow-hidden">
+                  <div class="d-flex align-items-center justify-content-between mb-1">
+                    <span class="fw-bold text-theme-primary text-truncate fs-6">{{ c['name'] }}</span>
+                    {% if c['last_message_time'] %}
+                      <span class="small text-theme-muted" style="font-size: 0.75rem;">{{ c['last_message_time'][11:16] }}</span>
+                    {% endif %}
+                  </div>
+                  <div class="d-flex align-items-center justify-content-between">
+                    <span class="small text-theme-muted text-truncate" style="max-width: 170px;">
+                      {{ c['last_message'] }}
+                    </span>
+                    {% if c['unread_count'] and c['unread_count'] > 0 %}
+                      <span class="badge rounded-circle bg-success text-white px-2 py-1 small">{{ c['unread_count'] }}</span>
+                    {% endif %}
+                  </div>
+                  <span class="badge rounded-pill bg-theme-subtle text-theme-muted mt-1" style="font-size: 0.72rem;">
+                    {{ c['subtitle'] or (c['role'] | capitalize) }}
+                  </span>
+                </div>
+              </a>
+            {% endfor %}
+          {% else %}
+            <div class="p-4 text-center text-theme-muted">
+              <i class="bi bi-chat-square-dots fs-1 mb-2 d-block opacity-50"></i>
+              <div class="fw-semibold">No contacts available</div>
+              <p class="small mb-0">Authorized family and doctors will appear here once approved.</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Right Column: Active Chat Conversation -->
+      <div class="col-md-7 col-lg-8 chat-main d-flex flex-column h-100 overflow-hidden">
+        {% if active_contact %}
+          <!-- Active Contact Header -->
+          <div class="chat-main-header flex-shrink-0 p-3 border-bottom border-theme d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-3">
+              <div class="chat-avatar-circle" style="width: 44px; height: 44px; font-size: 1.2rem;">
+                {% if active_contact['role'] == 'doctor' %}
+                  <i class="bi bi-heart-pulse-fill text-primary"></i>
+                {% elif active_contact['role'] == 'family' %}
+                  <i class="bi bi-people-fill text-success"></i>
+                {% else %}
+                  <i class="bi bi-person-heart text-accent"></i>
+                {% endif %}
+              </div>
+              <div>
+                <h3 class="fw-bold fs-5 text-theme-primary mb-0">{{ active_contact['name'] }}</h3>
+                <span class="small text-theme-muted">
+                  <i class="bi bi-dot text-success fs-5 align-middle"></i>
+                  {{ active_contact['subtitle'] or (active_contact['role'] | capitalize) }} &bull; Active Now
+                </span>
+              </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+              {% if active_contact['phone'] %}
+                <a href="tel:{{ active_contact['phone'] }}" class="btn btn-sm btn-outline-success rounded-pill px-3 py-1 fw-bold">
+                  <i class="bi bi-telephone-fill me-1"></i> Call
+                </a>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Message History Stream (Scrollable container taking remaining vertical space) -->
+          <div id="chat-messages-stream" class="chat-stream flex-grow-1 p-3 p-md-4 overflow-y-auto" style="min-height: 0;">
+            {% if messages %}
+              {% for m in messages %}
+                {% set is_me = (m['sender_id'] == session['user_id']) %}
+                <div class="d-flex mb-3 {% if is_me %}justify-content-end{% else %}justify-content-start{% endif %}">
+                  <div class="chat-bubble {% if is_me %}chat-bubble-sent{% else %}chat-bubble-received{% endif %} shadow-sm">
+                    {% if not is_me %}
+                      <div class="chat-sender-name mb-1">{{ m['sender_name'] }}</div>
+                    {% endif %}
+                    <div class="chat-text">{{ m['message'] }}</div>
+                    <div class="chat-timestamp text-end mt-1">
+                      {{ m['sent_at'][11:16] }}
+                      {% if is_me %}
+                        <i class="bi bi-check2-all text-lime ms-1"></i>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="h-100 d-flex flex-column align-items-center justify-content-center text-center text-theme-muted p-4">
+                <div class="rounded-circle bg-theme-subtle p-3 mb-2">
+                  <i class="bi bi-chat-heart-fill fs-1 text-accent"></i>
+                </div>
+                <div class="fw-bold fs-5 mb-1">Start of your conversation</div>
+                <p class="small" style="max-width: 320px;">
+                  Say hello to {{ active_contact['name'] }}! Messages are stored securely in your patient care record.
+                </p>
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- Message Reply Bar (Fixed to bottom of chat card, always visible) -->
+          <div class="chat-input-bar flex-shrink-0 p-3 border-top border-theme bg-card shadow-sm" style="z-index: 10;">
+            <form id="chat-send-form" class="d-flex align-items-center gap-2 m-0" onsubmit="handleSendMessage(event)">
+              <input type="hidden" id="chat-receiver-id" value="{{ active_contact['id'] }}">
+              
+              <input 
+                type="text" 
+                id="chat-message-input" 
+                class="form-control rounded-pill border bg-theme-subtle text-theme-primary px-4 py-2 fs-6 flex-grow-1"
+                placeholder="Type a message to {{ active_contact['name'] }}..." 
+                required 
+                autocomplete="off"
+              >
+              
+              <button type="submit" class="btn btn-3d btn-3d-lime rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 46px; height: 46px;" title="Send Message">
+                <i class="bi bi-send-fill fs-5"></i>
+              </button>
+            </form>
+          </div>
+
+        {% else %}
+          <!-- Empty State When No Active Contact -->
+          <div class="h-100 d-flex flex-column align-items-center justify-content-center text-center text-theme-muted p-5">
+            <i class="bi bi-chat-left-text fs-1 mb-3 opacity-50"></i>
+            <h4 class="fw-bold text-theme-primary mb-2">Select a Contact to Start Messaging</h4>
+            <p class="small" style="max-width: 380px;">
+              Choose a family member or assigned doctor from the list on the left to start a direct message thread.
+            </p>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Scroll message stream to bottom on page load
+  const stream = document.getElementById('chat-messages-stream');
+  if (stream) {
+    stream.scrollTop = stream.scrollHeight;
+  }
+
+  // Handle message send via AJAX
+  async function handleSendMessage(e) {
+    e.preventDefault();
+    const input = document.getElementById('chat-message-input');
+    const receiverId = document.getElementById('chat-receiver-id').value;
+    const text = input.value.trim();
+    if (!text || !receiverId) return;
+
+    input.value = '';
+
+    try {
+      const res = await fetch('/api/chat/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiver_id: receiverId, message: text })
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        appendMessage(data.message.message, data.message.sent_at, true);
+      }
+    } catch (err) {
+      console.error('Chat send error:', err);
+    }
+  }
+
+  function appendMessage(text, timestamp, isSent) {
+    if (!stream) return;
+    const timeStr = timestamp ? timestamp.substring(11, 16) : 'Now';
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `d-flex mb-3 ${isSent ? 'justify-content-end' : 'justify-content-start'}`;
+    msgDiv.innerHTML = `
+      <div class="chat-bubble ${isSent ? 'chat-bubble-sent' : 'chat-bubble-received'} shadow-sm">
+        <div class="chat-text">${escapeHtml(text)}</div>
+        <div class="chat-timestamp text-end mt-1">
+          ${timeStr} ${isSent ? '<i class="bi bi-check2 text-lime ms-1"></i>' : ''}
+        </div>
+      </div>
+    `;
+    stream.appendChild(msgDiv);
+    stream.scrollTop = stream.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    const p = document.createElement('p');
+    p.appendChild(document.createTextNode(str));
+    return p.innerHTML;
+  }
+
+  // Optional background polling every 5 seconds for new messages
+  {% if active_contact %}
+  const activeContactId = {{ active_contact['id'] }};
+  let lastCount = {{ messages|length }};
+  setInterval(async () => {
+    try {
+      const res = await fetch(`/api/chat/poll/${activeContactId}`);
+      const data = await res.json();
+      if (data.success && data.messages && data.messages.length > lastCount) {
+        const newMsgs = data.messages.slice(lastCount);
+        newMsgs.forEach(m => {
+          if (m.sender_id === activeContactId) {
+            appendMessage(m.message, m.sent_at, false);
+          }
+        });
+        lastCount = data.messages.length;
+      }
+    } catch (err) {
+      // ignore transient poll error
+    }
+  }, 4000);
+  {% endif %}
+</script>
+{% endblock %}

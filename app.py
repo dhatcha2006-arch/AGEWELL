@@ -2,7 +2,7 @@ import os
 import sqlite3
 from datetime import datetime, date, timedelta
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from models import get_db, init_db, log_audit
@@ -10,6 +10,11 @@ from scheduler import start_scheduler, notify_user, dispatch_sms
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'agewell-senior-portal-secure-secret-key-2026')
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB request limit
+
+def normalize_email(email_str):
+    """Trims whitespace and lowercases email address for canonical lookup."""
+    return (email_str or '').strip().lower()
 
 # Initialize DB and start APScheduler background worker
 init_db()
@@ -37,6 +42,14 @@ def role_required(*roles):
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
 
 @app.context_processor
 def inject_global_data():
@@ -250,10 +263,21 @@ def senior_checkin():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO daily_checkins (senior_id, checkin_date, checkin_time, status, note)
-        VALUES (?, ?, ?, 'ok', 'Pressed I am OK')
-        ON CONFLICT(senior_id, checkin_date) DO UPDATE SET checkin_time = ?, status = 'ok', note = 'Pressed I am OK'
-    """, (s_id, today_str, now_time, now_time))
+        SELECT id FROM daily_checkins WHERE senior_id = ? AND checkin_date = ?
+    """, (s_id, today_str))
+    existing = cursor.fetchone()
+
+    if existing:
+        cursor.execute("""
+            UPDATE daily_checkins
+            SET checkin_time = ?, status = 'ok', note = 'Pressed I am OK'
+            WHERE id = ?
+        """, (now_time, existing['id']))
+    else:
+        cursor.execute("""
+            INSERT INTO daily_checkins (senior_id, checkin_date, checkin_time, status, note)
+            VALUES (?, ?, ?, 'ok', 'Pressed I am OK')
+        """, (s_id, today_str, now_time))
     conn.commit()
 
     # Notify family members
@@ -336,6 +360,37 @@ def senior_medicine_action():
     msg = f"Marked medicine as {action}!"
     flash(msg, "success" if action == 'taken' else "info")
     return redirect(request.referrer or url_for('senior_dashboard'))
+
+@app.route('/senior/export/medications')
+@role_required('senior', 'doctor', 'family')
+def export_medications_csv():
+    senior_id = session['user_id'] if session['role'] == 'senior' else request.args.get('senior_id', session['user_id'])
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ml.scheduled_date, ml.scheduled_time, m.name as medicine_name, m.dose, ml.status, ml.logged_at, ml.note
+        FROM medicine_logs ml
+        JOIN medicines m ON ml.medicine_id = m.id
+        WHERE ml.senior_id = ?
+        ORDER BY ml.scheduled_date DESC, ml.scheduled_time DESC
+    """, (senior_id,))
+    logs = cursor.fetchall()
+    conn.close()
+
+    import csv
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Date', 'Scheduled Time', 'Medicine Name', 'Dosage', 'Adherence Status', 'Logged At', 'Notes'])
+    for r in logs:
+        writer.writerow([r['scheduled_date'], r['scheduled_time'], r['medicine_name'], r['dose'], r['status'], r['logged_at'] or '', r['note'] or ''])
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment;filename=agewell_medication_logs_senior_{senior_id}.csv"}
+    )
 
 @app.route('/senior/appointments')
 @role_required('senior')
@@ -494,6 +549,10 @@ def senior_sos():
     responder_name = None
     seconds_remaining = 120
     if active_alert:
+        active_alert = dict(active_alert)
+        max_step = len(contacts) + 1
+        active_alert['contact_escalation_step'] = min(active_alert.get('contact_escalation_step', 1) or 1, max_step)
+
         if active_alert['responded_by_user_id']:
             cursor.execute("SELECT name FROM users WHERE id = ?", (active_alert['responded_by_user_id'],))
             row = cursor.fetchone()
@@ -890,6 +949,37 @@ def doctor_appointments():
 
     return render_template('doctor/appointments.html', appointments=appointments, patients=patients)
 
+@app.route('/doctor/export/appointments')
+@role_required('doctor', 'admin')
+def export_appointments_csv():
+    d_id = session['user_id']
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT a.appointment_date, a.appointment_time, u.name as patient_name, a.title, a.status, a.notes
+        FROM appointments a 
+        JOIN users u ON a.senior_id = u.id 
+        WHERE a.doctor_user_id = ? 
+        ORDER BY a.appointment_date DESC, a.appointment_time DESC
+    """, (d_id,))
+    appts = cursor.fetchall()
+    conn.close()
+
+    import csv
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Date', 'Time', 'Patient Name', 'Title / Reason', 'Status', 'Clinical Notes'])
+    for r in appts:
+        writer.writerow([r['appointment_date'], r['appointment_time'], r['patient_name'], r['title'], r['status'], r['notes'] or ''])
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment;filename=agewell_doctor_appointments_{d_id}.csv"}
+    )
+
 # ----------------- Admin Routes -----------------
 # PDF Requirement: "Admin: Manages accounts and sees statistics. Cannot see private medical details"
 @app.route('/admin/dashboard')
@@ -1000,6 +1090,35 @@ def admin_audit_logs():
     conn.close()
     return render_template('admin/audit_logs.html', logs=logs)
 
+@app.route('/admin/export/audit-logs')
+@role_required('admin')
+def export_audit_logs_csv():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT al.created_at, u.name as actor_name, al.action, al.target_type, al.target_id, al.details, al.ip_address
+        FROM audit_logs al
+        LEFT JOIN users u ON al.actor_user_id = u.id
+        ORDER BY al.created_at DESC LIMIT 500
+    """)
+    logs = cursor.fetchall()
+    conn.close()
+
+    import csv
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Timestamp', 'Actor Name', 'Action', 'Target Type', 'Target ID', 'Details', 'IP Address'])
+    for r in logs:
+        writer.writerow([r['created_at'], r['actor_name'] or 'System', r['action'], r['target_type'], r['target_id'] or '', r['details'] or '', r['ip_address'] or ''])
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=agewell_audit_trail_export.csv"}
+    )
+
 # ----------------- Notifications API -----------------
 @app.route('/api/notifications/unread-count')
 def api_unread_count():
@@ -1011,6 +1130,15 @@ def api_unread_count():
     count = cursor.fetchone()[0]
     conn.close()
     return jsonify({'count': count})
+
+@app.route('/api/session/heartbeat')
+def api_session_heartbeat():
+    is_authenticated = 'user_id' in session
+    return jsonify({
+        'authenticated': is_authenticated,
+        'user_id': session.get('user_id'),
+        'role': session.get('role')
+    })
 
 @app.route('/notifications')
 @login_required
@@ -1025,6 +1153,240 @@ def notifications_view():
     notifs = cursor.fetchall()
     conn.close()
     return render_template('notifications.html', notifications=notifs)
+
+# ----------------- Chat / Messaging System -----------------
+def get_user_chat_contacts(user_id, role):
+    """Returns authorized contacts for chat based on user role and relationships."""
+    conn = get_db()
+    cursor = conn.cursor()
+    contacts = []
+
+    if role == 'senior':
+        # Senior can message approved Family Members
+        cursor.execute("""
+            SELECT u.id, u.name, u.role, u.phone, fl.relation as subtitle
+            FROM family_links fl
+            JOIN users u ON fl.family_user_id = u.id
+            WHERE fl.senior_id = ? AND fl.is_approved = 1
+            ORDER BY u.name ASC
+        """, (user_id,))
+        for r in cursor.fetchall():
+            contacts.append(dict(r))
+
+        # Senior can message assigned Doctors
+        cursor.execute("""
+            SELECT u.id, u.name, u.role, u.phone, da.specialization as subtitle
+            FROM doctor_assignments da
+            JOIN users u ON da.doctor_user_id = u.id
+            WHERE da.senior_id = ? AND da.is_approved = 1
+            ORDER BY u.name ASC
+        """, (user_id,))
+        for r in cursor.fetchall():
+            contacts.append(dict(r))
+
+    elif role == 'family':
+        # Family can message approved Seniors
+        cursor.execute("""
+            SELECT u.id, u.name, u.role, u.phone, fl.relation as subtitle
+            FROM family_links fl
+            JOIN users u ON fl.senior_id = u.id
+            WHERE fl.family_user_id = ? AND fl.is_approved = 1
+            ORDER BY u.name ASC
+        """, (user_id,))
+        for r in cursor.fetchall():
+            contacts.append(dict(r))
+
+        # Family can also message assigned Doctors for their Seniors
+        cursor.execute("""
+            SELECT DISTINCT u.id, u.name, u.role, u.phone, da.specialization as subtitle
+            FROM family_links fl
+            JOIN doctor_assignments da ON fl.senior_id = da.senior_id
+            JOIN users u ON da.doctor_user_id = u.id
+            WHERE fl.family_user_id = ? AND fl.is_approved = 1 AND da.is_approved = 1
+            ORDER BY u.name ASC
+        """, (user_id,))
+        for r in cursor.fetchall():
+            if not any(c['id'] == r['id'] for c in contacts):
+                contacts.append(dict(r))
+
+    elif role == 'doctor':
+        # Doctor can message assigned Seniors
+        cursor.execute("""
+            SELECT u.id, u.name, u.role, u.phone, da.specialization as subtitle
+            FROM doctor_assignments da
+            JOIN users u ON da.senior_id = u.id
+            WHERE da.doctor_user_id = ? AND da.is_approved = 1
+            ORDER BY u.name ASC
+        """, (user_id,))
+        for r in cursor.fetchall():
+            contacts.append(dict(r))
+
+        # Doctor can also message approved Family Members of their Seniors
+        cursor.execute("""
+            SELECT DISTINCT u.id, u.name, u.role, u.phone, fl.relation as subtitle
+            FROM doctor_assignments da
+            JOIN family_links fl ON da.senior_id = fl.senior_id
+            JOIN users u ON fl.family_user_id = u.id
+            WHERE da.doctor_user_id = ? AND da.is_approved = 1 AND fl.is_approved = 1
+            ORDER BY u.name ASC
+        """, (user_id,))
+        for r in cursor.fetchall():
+            if not any(c['id'] == r['id'] for c in contacts):
+                contacts.append(dict(r))
+
+    elif role == 'admin':
+        # Admin can view/message active users for support
+        cursor.execute("""
+            SELECT id, name, role, phone, role as subtitle
+            FROM users
+            WHERE id != ?
+            ORDER BY name ASC
+        """, (user_id,))
+        for r in cursor.fetchall():
+            contacts.append(dict(r))
+
+    # Add last message and unread count for each contact
+    for c in contacts:
+        c_id = c['id']
+        cursor.execute("""
+            SELECT message, sent_at, sender_id
+            FROM messages
+            WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+            ORDER BY sent_at DESC LIMIT 1
+        """, (user_id, c_id, c_id, user_id))
+        last_m = cursor.fetchone()
+        if last_m:
+            c['last_message'] = last_m['message']
+            c['last_message_time'] = last_m['sent_at']
+        else:
+            c['last_message'] = 'No messages yet'
+            c['last_message_time'] = ''
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM messages
+            WHERE sender_id = ? AND receiver_id = ? AND is_read = 0
+        """, (c_id, user_id))
+        c['unread_count'] = cursor.fetchone()[0]
+
+    conn.close()
+    return contacts
+
+@app.route('/chat')
+@app.route('/chat/<int:contact_id>')
+@login_required
+def chat_view(contact_id=None):
+    user_id = session['user_id']
+    role = session['role']
+    contacts = get_user_chat_contacts(user_id, role)
+
+    active_contact = None
+    messages = []
+
+    if contacts:
+        if contact_id:
+            active_contact = next((c for c in contacts if c['id'] == contact_id), None)
+        if not active_contact:
+            active_contact = contacts[0]
+
+        # Fetch messages between user and active_contact
+        conn = get_db()
+        cursor = conn.cursor()
+        c_id = active_contact['id']
+
+        # Mark messages from active_contact as read
+        cursor.execute("""
+            UPDATE messages SET is_read = 1
+            WHERE sender_id = ? AND receiver_id = ?
+        """, (c_id, user_id))
+        conn.commit()
+
+        cursor.execute("""
+            SELECT m.*, u.name as sender_name
+            FROM messages m
+            JOIN users u ON m.sender_id = u.id
+            WHERE (m.sender_id = ? AND m.receiver_id = ?)
+               OR (m.sender_id = ? AND m.receiver_id = ?)
+            ORDER BY m.sent_at ASC
+        """, (user_id, c_id, c_id, user_id))
+        messages = cursor.fetchall()
+        conn.close()
+
+    return render_template(
+        'chat.html',
+        contacts=contacts,
+        active_contact=active_contact,
+        messages=messages
+    )
+
+@app.route('/api/chat/send', methods=['POST'])
+@login_required
+def api_chat_send():
+    data = request.get_json() or {}
+    receiver_id = data.get('receiver_id')
+    message_text = (data.get('message') or '').strip()
+
+    if not receiver_id or not message_text:
+        return jsonify({'success': False, 'error': 'Missing recipient or message'}), 400
+
+    user_id = session['user_id']
+    role = session['role']
+
+    # Security check: verify receiver is an authorized contact
+    contacts = get_user_chat_contacts(user_id, role)
+    allowed_ids = [c['id'] for c in contacts]
+    if int(receiver_id) not in allowed_ids:
+        return jsonify({'success': False, 'error': 'Unauthorized conversation'}), 403
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO messages (sender_id, receiver_id, message, is_read, sent_at)
+        VALUES (?, ?, ?, 0, datetime('now', 'localtime'))
+    """, (user_id, receiver_id, message_text))
+    new_msg_id = cursor.lastrowid
+    conn.commit()
+
+    cursor.execute("SELECT * FROM messages WHERE id = ?", (new_msg_id,))
+    msg = dict(cursor.fetchone())
+    conn.close()
+
+    return jsonify({'success': True, 'message': msg})
+
+@app.route('/api/chat/poll/<int:contact_id>')
+@login_required
+def api_chat_poll(contact_id):
+    user_id = session['user_id']
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Mark incoming as read
+    cursor.execute("""
+        UPDATE messages SET is_read = 1
+        WHERE sender_id = ? AND receiver_id = ?
+    """, (contact_id, user_id))
+    conn.commit()
+
+    cursor.execute("""
+        SELECT m.*, u.name as sender_name
+        FROM messages m
+        JOIN users u ON m.sender_id = u.id
+        WHERE (m.sender_id = ? AND m.receiver_id = ?)
+           OR (m.sender_id = ? AND m.receiver_id = ?)
+        ORDER BY m.sent_at ASC
+    """, (user_id, contact_id, contact_id, user_id))
+    msgs = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    return jsonify({'success': True, 'messages': msgs})
+
+# ----------------- Custom Error Handlers -----------------
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('errors/404.html'), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return render_template('errors/500.html'), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

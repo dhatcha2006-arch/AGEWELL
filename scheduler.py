@@ -214,6 +214,15 @@ def check_sos_escalation():
 
             elapsed_seconds = (now - triggered_dt).total_seconds()
             
+            # Total emergency contacts for this senior
+            cursor.execute("SELECT COUNT(*) FROM emergency_contacts WHERE senior_id = ?", (s_id,))
+            total_contacts = cursor.fetchone()[0] or 1
+            max_step = total_contacts + 1
+
+            if current_step >= max_step:
+                # Already escalated to final emergency dispatch level; do not repeat or increment further
+                continue
+
             # 2 minutes per escalation level
             threshold_seconds = current_step * 120
 
@@ -249,12 +258,12 @@ def check_sos_escalation():
                     for d in cursor.fetchall():
                         notify_user(d['doctor_user_id'], 'sos', f"Patient SOS Escalation - Level {next_step}", msg, channel='both')
                 else:
-                    # Reached end of contact list: alert emergency dispatch
+                    # Reached end of contact list: alert emergency dispatch once
                     cursor.execute("""
                         UPDATE emergency_alerts 
                         SET contact_escalation_step = ?, notes = 'Maximum contact escalation reached. Auto-routed to Emergency 112 Dispatch.'
                         WHERE id = ?
-                    """, (next_step, alert_id))
+                    """, (max_step, alert_id))
                     conn.commit()
                     
                     crit_msg = f"CRITICAL: All emergency contacts exhausted for {s_name}! Call 112 Emergency Dispatch immediately!"

@@ -14,6 +14,9 @@
       <a href="{{ url_for('doctor_patients') }}" class="btn btn-outline-dark rounded-pill px-4 py-2 fw-bold">
         <i class="bi bi-arrow-left me-1"></i> Back to Roster
       </a>
+      <a href="{{ url_for('chat_view', contact_id=patient['id']) }}" class="btn btn-outline-primary rounded-pill px-4 py-2 fw-bold">
+        <i class="bi bi-chat-dots-fill me-1"></i> Message Patient
+      </a>
       <a href="tel:{{ patient['phone'] }}" class="btn-3d btn-3d-lime py-2 px-4">
         <i class="bi bi-telephone-fill me-1"></i> Contact Patient
       </a>
